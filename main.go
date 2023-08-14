@@ -7,6 +7,7 @@ import (
     "github.com/projectcollection/chirpy/internals/storage"
 	"log"
 	"net/http"
+    "sort"
 )
 
 type apiConfig struct {
@@ -62,6 +63,21 @@ func main() {
         newChirp, _:= db.CreateChirp(CleanChirp(chirpData.Body))
 
 		RespondWithJson(w, http.StatusCreated, newChirp)
+		return
+	})
+
+	apiRouter.Get("/chirps", func(w http.ResponseWriter, r *http.Request) {
+		type chirp struct {
+			Body string `json:"body"`
+		}
+
+        chirps, _ := db.GetChirps()
+
+        sort.Slice(chirps, func(i, j int) bool {
+            return chirps[i].Id < chirps[j].Id
+        })
+
+		RespondWithJson(w, http.StatusCreated, chirps)
 		return
 	})
 
