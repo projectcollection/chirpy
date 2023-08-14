@@ -28,14 +28,7 @@ func NewDB(path string) (*DB, error) {
 		mu:   &sync.Mutex{},
 	}
 
-    dbStruct, err := newDB.loadDB()
-
-    newDB.db = dbStruct
-	if err != nil {
-        newDB.writeDB(newDB.db)
-	} else {
-        newDB.db = dbStruct
-    }
+    err := newDB.ensureDB()
 
 	if err != nil {
 		return &DB{}, err
