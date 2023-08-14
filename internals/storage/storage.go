@@ -60,6 +60,15 @@ func (db *DB) GetChirps() ([]Chirp, error) {
 	return chirpSlc, nil
 }
 
+func (db *DB) GetChirp(id int) (Chirp, error) {
+    chirp, ok := db.db.Chirps[id]
+
+    if !ok {
+        return Chirp{}, errors.New("chirp not found")
+    }
+
+	return chirp, nil
+}
 func (db *DB) ensureDB() error {
 	dbStruct, err := db.loadDB()
 

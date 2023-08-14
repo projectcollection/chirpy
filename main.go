@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
     "sort"
+    "strconv"
 )
 
 type apiConfig struct {
@@ -67,17 +68,26 @@ func main() {
 	})
 
 	apiRouter.Get("/chirps", func(w http.ResponseWriter, r *http.Request) {
-		type chirp struct {
-			Body string `json:"body"`
-		}
-
         chirps, _ := db.GetChirps()
-
         sort.Slice(chirps, func(i, j int) bool {
             return chirps[i].Id < chirps[j].Id
         })
 
-		RespondWithJson(w, http.StatusCreated, chirps)
+		RespondWithJson(w, http.StatusOK, chirps)
+		return
+	})
+
+	apiRouter.Get("/chirps/{chirpid}", func(w http.ResponseWriter, r *http.Request) {
+        chirpID := chi.URLParam(r, "chirpid")
+
+        id, err := strconv.Atoi(chirpID)
+        chirp, err := db.GetChirp(id)
+
+        if err != nil {
+            RespondWithError(w, http.StatusNotFound, "not found")
+        }
+
+		RespondWithJson(w, http.StatusOK, chirp)
 		return
 	})
 
