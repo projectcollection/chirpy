@@ -96,21 +96,47 @@ func main() {
 	})
 
 	apiRouter.Post("/users", func(w http.ResponseWriter, r *http.Request) {
-		type chirp struct {
+		type user struct {
 			Email string `json:"email"`
+			Passord string `json:"password"`
 		}
 
 		decoder := json.NewDecoder(r.Body)
-		chirpData := chirp{}
-		err := decoder.Decode(&chirpData)
+		userData := user{}
+		err := decoder.Decode(&userData)
 
 		if err != nil {
 			return
 		}
 
-		newUser, _ := db.CreateUser(chirpData.Email)
+        newUser, _ := db.CreateUser(userData.Email, userData.Passord)
 
 		RespondWithJson(w, http.StatusCreated, newUser)
+		return
+	})
+
+	apiRouter.Post("/login", func(w http.ResponseWriter, r *http.Request) {
+		type user struct {
+			Email string `json:"email"`
+			Passord string `json:"password"`
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		userData := user{}
+		err := decoder.Decode(&userData)
+
+		if err != nil {
+			return
+		}
+
+        foundUser, err := db.GetUser(userData.Email, userData.Passord)
+
+        if err != nil {
+            RespondWithError(w, 401, "wrong password")
+            return
+        }
+
+		RespondWithJson(w, http.StatusOK, foundUser)
 		return
 	})
 
