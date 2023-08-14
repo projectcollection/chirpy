@@ -2,13 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-    "github.com/projectcollection/chirpy/internals/storage"
 	"log"
 	"net/http"
-    "sort"
-    "strconv"
+	"sort"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/projectcollection/chirpy/internals/storage"
 )
 
 type apiConfig struct {
@@ -25,13 +27,15 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func main() {
 	const port = "8080"
 
+	dbg := flag.Bool("debug", false, "Enable debug mode.")
+	flag.Parse()
+
 	metrics := apiConfig{}
+	db, err := storage.NewDB("./db.json", *dbg)
 
-    db, err := storage.NewDB("./db.json")
-
-    if err != nil {
-        fmt.Println("error creating db")
-    }
+	if err != nil {
+		fmt.Println("error creating db")
+	}
 
 	r := chi.NewRouter()
 	apiRouter := chi.NewRouter()
@@ -61,31 +65,31 @@ func main() {
 			return
 		}
 
-        newChirp, _:= db.CreateChirp(CleanChirp(chirpData.Body))
+		newChirp, _ := db.CreateChirp(CleanChirp(chirpData.Body))
 
 		RespondWithJson(w, http.StatusCreated, newChirp)
 		return
 	})
 
 	apiRouter.Get("/chirps", func(w http.ResponseWriter, r *http.Request) {
-        chirps, _ := db.GetChirps()
-        sort.Slice(chirps, func(i, j int) bool {
-            return chirps[i].Id < chirps[j].Id
-        })
+		chirps, _ := db.GetChirps()
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[i].Id < chirps[j].Id
+		})
 
 		RespondWithJson(w, http.StatusOK, chirps)
 		return
 	})
 
 	apiRouter.Get("/chirps/{chirpid}", func(w http.ResponseWriter, r *http.Request) {
-        chirpID := chi.URLParam(r, "chirpid")
+		chirpID := chi.URLParam(r, "chirpid")
 
-        id, err := strconv.Atoi(chirpID)
-        chirp, err := db.GetChirp(id)
+		id, err := strconv.Atoi(chirpID)
+		chirp, err := db.GetChirp(id)
 
-        if err != nil {
-            RespondWithError(w, http.StatusNotFound, "not found")
-        }
+		if err != nil {
+			RespondWithError(w, http.StatusNotFound, "not found")
+		}
 
 		RespondWithJson(w, http.StatusOK, chirp)
 		return
@@ -104,7 +108,7 @@ func main() {
 			return
 		}
 
-        newUser, _:= db.CreateUser(chirpData.Email)
+		newUser, _ := db.CreateUser(chirpData.Email)
 
 		RespondWithJson(w, http.StatusCreated, newUser)
 		return
