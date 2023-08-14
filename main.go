@@ -91,6 +91,25 @@ func main() {
 		return
 	})
 
+	apiRouter.Post("/users", func(w http.ResponseWriter, r *http.Request) {
+		type chirp struct {
+			Email string `json:"email"`
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		chirpData := chirp{}
+		err := decoder.Decode(&chirpData)
+
+		if err != nil {
+			return
+		}
+
+        newUser, _:= db.CreateUser(chirpData.Email)
+
+		RespondWithJson(w, http.StatusCreated, newUser)
+		return
+	})
+
 	adminRouter.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)

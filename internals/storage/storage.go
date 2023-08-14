@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 )
@@ -17,14 +18,23 @@ type Chirp struct {
 	Body string `json:"body"`
 }
 
+type User struct {
+	Id   int    `json:"id"`
+	Email string `json:"email"`
+}
+
 type DBStruct struct {
 	Chirps map[int]Chirp `json:"chirps"`
+    Users map[int]User `json:"users"`
 }
 
 func NewDB(path string) (*DB, error) {
 	newDB := DB{
 		path: path,
-		db:   DBStruct{Chirps: make(map[int]Chirp)},
+		db:   DBStruct{
+            Chirps: make(map[int]Chirp),
+            Users: make(map[int]User),
+        },
 		mu:   &sync.Mutex{},
 	}
 
@@ -51,6 +61,20 @@ func (db *DB) CreateChirp(body string) (Chirp, error) {
 	return newChirp, nil
 }
 
+func (db *DB) CreateUser(email string) (User, error) {
+	id := len(db.db.Users) + 1
+
+	defer db.writeDB(DBStruct{Users: make(map[int]User)})
+
+	newUser := User{
+		Id:   id,
+		Email: email,
+	}
+
+	db.db.Users[newUser.Id] = newUser
+	return newUser, nil
+}
+
 func (db *DB) GetChirps() ([]Chirp, error) {
 	chirpSlc := []Chirp{}
 	for id := range db.db.Chirps {
@@ -58,6 +82,15 @@ func (db *DB) GetChirps() ([]Chirp, error) {
 	}
 
 	return chirpSlc, nil
+}
+
+func (db *DB) GetUsers() ([]User, error) {
+	userSlc := []User{}
+	for id := range db.db.Chirps {
+		userSlc = append(userSlc, db.db.Users[id])
+	}
+
+	return userSlc, nil
 }
 
 func (db *DB) GetChirp(id int) (Chirp, error) {
@@ -69,6 +102,19 @@ func (db *DB) GetChirp(id int) (Chirp, error) {
 
 	return chirp, nil
 }
+
+
+func (db *DB) GetUser(id int) (User, error) {
+    user, ok := db.db.Users[id]
+
+    if !ok {
+        return User{}, errors.New("chirp not found")
+    }
+
+	return user, nil
+}
+
+
 func (db *DB) ensureDB() error {
 	dbStruct, err := db.loadDB()
 
@@ -96,6 +142,7 @@ func (db *DB) loadDB() (DBStruct, error) {
 
 	dbStruct := DBStruct{
         Chirps: make(map[int]Chirp),
+        Users: make(map[int]User),
     }
 	err = json.Unmarshal(b, &dbStruct)
 
@@ -114,6 +161,10 @@ func (db *DB) writeDB(dbStruct DBStruct) error {
 
 	for id := range dbStruct.Chirps {
 		db.db.Chirps[id] = dbStruct.Chirps[id]
+	}
+
+	for id := range dbStruct.Users {
+		db.db.Users[id] = dbStruct.Users[id]
 	}
 
 	b, err := json.Marshal(db.db)
