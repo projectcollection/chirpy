@@ -18,11 +18,11 @@ type UserWithPassword struct {
 }
 
 func (db *DB) CreateUser(email string, password string) (User, error) {
-    _, ok := db.db.Users[email]
+	_, ok := db.db.Users[email]
 
-    if ok {
-        return User{}, errors.New("user already exists")
-    }
+	if ok {
+		return User{}, errors.New("user already exists")
+	}
 
 	id := len(db.db.Users) + 1
 
@@ -77,17 +77,44 @@ func (db *DB) GetUser(email, password string) (User, error) {
 	user, ok := db.db.Users[email]
 
 	if !ok {
-		return User{}, errors.New("chirp not found")
+		return User{}, errors.New("user not found")
 	}
 
-    err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 
-    if err != nil {
-        return User{}, errors.New("email or password might be wrong")
-    }
+	if err != nil {
+		return User{}, errors.New("email or password might be wrong")
+	}
 
 	return User{
 		Id:    user.Id,
 		Email: user.Email,
+	}, nil
+}
+
+func (db *DB) UpdateUser(currentEmail, email, password string) (User, error) {
+	user, ok := db.db.Users[currentEmail]
+
+	if !ok {
+		return User{}, errors.New("chirp not found")
+	}
+
+	delete(db.db.Users, currentEmail)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), 10)
+
+	updatedUser := UserWithPassword{
+		User: User{
+			Id:    user.Id,
+			Email: email,
+		},
+		Password: string(hash),
+	}
+
+	db.db.Users[email] = updatedUser
+
+	return User{
+		Id:    updatedUser.Id,
+		Email: updatedUser.Email,
 	}, nil
 }
