@@ -61,9 +61,24 @@ func main() {
 			Body string `json:"body"`
 		}
 
+		authHeader := r.Header.Get("Authorization")
+		jwtToken := strings.Split(authHeader, " ")[1]
+
+		token, err := jwt.ParseWithClaims(jwtToken, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(cfg.jwtSecret), nil
+		})
+
+		if err != nil {
+			RespondWithError(w, 401, "unauthorized")
+			return
+		}
+
+		subject, err := token.Claims.GetSubject()
+		//now := jwt.NewNumericDate(time.Now())
+
 		decoder := json.NewDecoder(r.Body)
 		chirpData := chirp{}
-		err := decoder.Decode(&chirpData)
+		err = decoder.Decode(&chirpData)
 
 		if err != nil {
 			return
@@ -73,8 +88,9 @@ func main() {
 			RespondWithError(w, http.StatusBadRequest, "Chirp is too long")
 			return
 		}
+		authorId, _ := strconv.Atoi(strings.Split(subject, "")[0])
 
-		newChirp, _ := db.CreateChirp(CleanChirp(chirpData.Body))
+		newChirp, _ := db.CreateChirp(CleanChirp(chirpData.Body), authorId)
 
 		RespondWithJson(w, http.StatusCreated, newChirp)
 		return
@@ -103,6 +119,38 @@ func main() {
 		RespondWithJson(w, http.StatusOK, chirp)
 		return
 	})
+
+    apiRouter.Delete("/chirps/{chirpid}", func(w http.ResponseWriter, r *http.Request) {
+		chirpID := chi.URLParam(r, "chirpid")
+        chirpIdInt, _ := strconv.Atoi(chirpID)
+
+		authHeader := r.Header.Get("Authorization")
+		jwtToken := strings.Split(authHeader, " ")[1]
+
+		token, err := jwt.ParseWithClaims(jwtToken, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(cfg.jwtSecret), nil
+		})
+
+		if err != nil {
+			RespondWithError(w, 401, "unauthorized")
+			return
+		}
+
+		subject, err := token.Claims.GetSubject()
+		authorId, _ := strconv.Atoi(strings.Split(subject, "")[0])
+
+        chirp, _ := db.GetChirp(chirpIdInt)
+
+        if authorId != chirp.AuthorId {
+            RespondWithError(w, 403, "who u")
+            return
+        }
+
+        db.DeleteChirp(chirpIdInt)
+
+        RespondWithJson(w, http.StatusOK, struct{}{})
+        return
+    })
 
 	apiRouter.Post("/users", func(w http.ResponseWriter, r *http.Request) {
 		type user struct {

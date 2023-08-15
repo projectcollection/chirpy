@@ -5,18 +5,20 @@ import (
 )
 
 type Chirp struct {
-	Id   int    `json:"id"`
-	Body string `json:"body"`
+	Id       int    `json:"id"`
+	Body     string `json:"body"`
+	AuthorId int    `json:"author_id"`
 }
 
-func (db *DB) CreateChirp(body string) (Chirp, error) {
+func (db *DB) CreateChirp(body string, authorId int) (Chirp, error) {
 	id := len(db.db.Chirps) + 1
 
 	defer db.writeDB(DBStruct{Chirps: make(map[int]Chirp)})
 
 	newChirp := Chirp{
-		Id:   id,
-		Body: body,
+		Id:       id,
+		Body:     body,
+		AuthorId: authorId,
 	}
 
 	db.db.Chirps[newChirp.Id] = newChirp
@@ -40,4 +42,8 @@ func (db *DB) GetChirp(id int) (Chirp, error) {
 	}
 
 	return chirp, nil
+}
+
+func (db *DB) DeleteChirp(id int) {
+	delete(db.db.Chirps, id)
 }
