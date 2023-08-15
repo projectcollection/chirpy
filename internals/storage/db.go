@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"time"
 )
 
 type DB struct {
@@ -13,16 +14,18 @@ type DB struct {
 }
 
 type DBStruct struct {
-	Chirps map[int]Chirp `json:"chirps"`
-	Users  map[string]UserWithPassword `json:"users"`
+	Chirps          map[int]Chirp               `json:"chirps"`
+	Users           map[string]UserWithPassword `json:"users"`
+	RevokedRFTokens map[string]time.Time        `json:"revoked_tokens"`
 }
 
 func NewDB(path string, dbg bool) (*DB, error) {
 	newDB := DB{
 		path: path,
 		db: DBStruct{
-			Chirps: make(map[int]Chirp),
-			Users:  make(map[string]UserWithPassword),
+			Chirps:          make(map[int]Chirp),
+			Users:           make(map[string]UserWithPassword),
+			RevokedRFTokens: make(map[string]time.Time),
 		},
 		mu: &sync.Mutex{},
 	}
@@ -68,8 +71,9 @@ func (db *DB) loadDB() (DBStruct, error) {
 	}
 
 	dbStruct := DBStruct{
-		Chirps: make(map[int]Chirp),
-		Users:  make(map[string]UserWithPassword),
+		Chirps:          make(map[int]Chirp),
+		Users:           make(map[string]UserWithPassword),
+		RevokedRFTokens: make(map[string]time.Time),
 	}
 	err = json.Unmarshal(b, &dbStruct)
 
@@ -92,6 +96,10 @@ func (db *DB) writeDB(dbStruct DBStruct) error {
 
 	for id := range dbStruct.Users {
 		db.db.Users[id] = dbStruct.Users[id]
+	}
+
+	for id := range dbStruct.RevokedRFTokens {
+		db.db.RevokedRFTokens[id] = dbStruct.RevokedRFTokens[id]
 	}
 
 	b, err := json.Marshal(db.db)

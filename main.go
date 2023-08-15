@@ -132,9 +132,10 @@ func main() {
 		}
 
 		type userWithToken struct {
-			Id    int `json:"id"`
-			User  user
-			Token string `json:"token"`
+			Id           int `json:"id"`
+			User         user
+			Token        string `json:"token"`
+			RefreshToken string `json:"refresh_token"`
 		}
 
 		decoder := json.NewDecoder(r.Body)
@@ -152,26 +153,33 @@ func main() {
 			return
 		}
 
-		claims := jwt.RegisteredClaims{
-			Issuer:   "chirpy",
-			IssuedAt: jwt.NewNumericDate(time.Now()),
-			Subject:  fmt.Sprintf("%d-%s", foundUser.Id, foundUser.Email),
+		accessTokenClaims := jwt.RegisteredClaims{
+			Issuer:    "chirpy-access",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   fmt.Sprintf("%d-%s", foundUser.Id, foundUser.Email),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 		}
 
-		if userData.Exp > 0 {
-			claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(time.Duration(userData.Exp)))
+		refreshTokenClaims := jwt.RegisteredClaims{
+			Issuer:    "chirpy-refresh",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   fmt.Sprintf("%d-%s", foundUser.Id, foundUser.Email),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * 60 * time.Hour)),
 		}
 
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessTokenClaims)
+		refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshTokenClaims)
 
-		tokenString, _ := token.SignedString([]byte(cfg.jwtSecret))
+		accessTokenString, _ := accessToken.SignedString([]byte(cfg.jwtSecret))
+		refreshTokenString, _ := refreshToken.SignedString([]byte(cfg.jwtSecret))
 
 		RespondWithJson(w, http.StatusOK, userWithToken{
 			Id: foundUser.Id,
 			User: user{
 				Email: foundUser.Email,
 			},
-			Token: tokenString,
+			Token:        accessTokenString,
+			RefreshToken: refreshTokenString,
 		})
 		return
 	})
@@ -199,15 +207,13 @@ func main() {
 			RespondWithError(w, 401, "unauthorized")
 			return
 		}
-		expTime, err := token.Claims.GetExpirationTime()
 
-		if err != nil {
-			fmt.Println("exptime", err)
-		}
+		expTime, err := token.Claims.GetExpirationTime()
+		issuer, err := token.Claims.GetIssuer()
 
 		now := jwt.NewNumericDate(time.Now())
 
-		if expTime != nil && now.Before(expTime.Time) {
+		if expTime != nil && now.After(expTime.Time) || issuer == "chirpy-refresh" {
 			RespondWithError(w, 401, "unauthorized")
 			return
 		}
@@ -221,15 +227,90 @@ func main() {
 		}
 
 		subject, _ := token.Claims.GetSubject()
+
 		updatedUser, _ := db.UpdateUser(strings.Split(subject, "-")[1], updateData.Email, updateData.Password)
+
+		//Welp... this is unfortunate
+		if updatedUser.Id == 0 {
+			users, _ := db.GetUsers()
+
+			id, _ := strconv.Atoi(strings.Split(subject, "-")[0])
+			for _, user := range users {
+				if user.Id == id {
+					updatedUser = user
+				}
+			}
+		}
+
+		updatedUser, _ = db.UpdateUser(updatedUser.Email, updateData.Email, updateData.Password)
+
+		accessTokenClaims := jwt.RegisteredClaims{
+			Issuer:    "chirpy-access",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   fmt.Sprintf("%d-%s", updatedUser.Id, updatedUser.Email),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+		}
+
+		token.Claims = accessTokenClaims
+
+		newJwtToken, _ := token.SignedString([]byte(cfg.jwtSecret))
 
 		userToReturn := user{
 			Id:    updatedUser.Id,
 			Email: updatedUser.Email,
-			Token: jwtToken,
+			Token: newJwtToken,
 		}
 
 		RespondWithJson(w, http.StatusOK, userToReturn)
+	})
+
+	apiRouter.Post("/refresh", func(w http.ResponseWriter, r *http.Request) {
+		type res struct {
+			Token string `json:"token"`
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		jwtToken := strings.Split(authHeader, " ")[1]
+		token, err := jwt.ParseWithClaims(jwtToken, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(cfg.jwtSecret), nil
+		})
+
+		if err != nil {
+			RespondWithError(w, 401, "unauthorized")
+			return
+		}
+
+		issuer, err := token.Claims.GetIssuer()
+		subject, err := token.Claims.GetSubject()
+
+		if issuer != "chirpy-refresh" || err != nil || db.IsRFTokenRevoked(jwtToken) {
+			RespondWithError(w, 401, "unauthorized")
+			return
+		}
+
+		accessTokenClaims := jwt.RegisteredClaims{
+			Issuer:    "chirpy-access",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   fmt.Sprintf("%s", subject),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+		}
+
+		newAccessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessTokenClaims)
+
+		accessTokenString, _ := newAccessToken.SignedString([]byte(cfg.jwtSecret))
+
+		RespondWithJson(w, http.StatusOK, res{
+			Token: accessTokenString,
+		})
+	})
+
+	apiRouter.Post("/revoke", func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		resfreshToken := strings.Split(authHeader, " ")[1]
+
+		db.RevokeRFToken(resfreshToken)
+
+		RespondWithJson(w, http.StatusOK, struct{}{})
 	})
 
 	adminRouter.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
