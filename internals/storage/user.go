@@ -8,8 +8,9 @@ import (
 )
 
 type User struct {
-	Id    int    `json:"id"`
-	Email string `json:"email"`
+	Id          int    `json:"id"`
+	Email       string `json:"email"`
+	IsChirpyRed bool   `json:"is_chirpy_red"`
 }
 
 type UserWithPassword struct {
@@ -32,8 +33,9 @@ func (db *DB) CreateUser(email string, password string) (User, error) {
 
 	newUser := UserWithPassword{
 		User: User{
-			Id:    id,
-			Email: email,
+			Id:          id,
+			Email:       email,
+			IsChirpyRed: false,
 		},
 		Password: string(hash),
 	}
@@ -87,11 +89,30 @@ func (db *DB) GetUser(email, password string) (User, error) {
 	}
 
 	return User{
-		Id:    user.Id,
-		Email: user.Email,
+		Id:          user.Id,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	}, nil
 }
 
+func (db *DB) UpgradeUser(id int) error {
+	users, _ := db.GetUsers()
+
+	for _, user := range users {
+		if user.Id == id {
+			userToUpdate := db.db.Users[user.Email]
+
+			userToUpdate.IsChirpyRed = true
+
+			db.db.Users[user.Email] = userToUpdate
+			return nil
+		}
+	}
+
+	return errors.New("user not found")
+}
+
+// Todo: updateData could be a struct or map?
 func (db *DB) UpdateUser(currentEmail, email, password string) (User, error) {
 	user, ok := db.db.Users[currentEmail]
 

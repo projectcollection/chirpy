@@ -21,6 +21,7 @@ import (
 type apiConfig struct {
 	fileserverHits int
 	jwtSecret      string
+	polkaApiKey    string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -38,7 +39,8 @@ func main() {
 	flag.Parse()
 
 	cfg := apiConfig{
-		jwtSecret: os.Getenv("JWT_SECRET"),
+		jwtSecret:   os.Getenv("JWT_SECRET"),
+		polkaApiKey: os.Getenv("POLKA_API_KEY"),
 	}
 	db, err := storage.NewDB("./db.json", *dbg)
 
@@ -97,9 +99,28 @@ func main() {
 	})
 
 	apiRouter.Get("/chirps", func(w http.ResponseWriter, r *http.Request) {
+		author_id := r.URL.Query().Get("author_id")
+		sortOpt := r.URL.Query().Get("sort")
+
 		chirps, _ := db.GetChirps()
+
+		if len(author_id) > 0 {
+			filteredChirps := []storage.Chirp{}
+			for _, chirp := range chirps {
+                id, _ := strconv.Atoi(author_id)
+				if chirp.AuthorId == id {
+					filteredChirps = append(filteredChirps, chirp)
+				}
+			}
+
+            chirps = filteredChirps
+		}
+
 		sort.Slice(chirps, func(i, j int) bool {
-			return chirps[i].Id < chirps[j].Id
+            if len(sortOpt) == 0 || sortOpt == "asc" {
+                return chirps[i].Id < chirps[j].Id
+            }
+            return chirps[i].Id > chirps[j].Id
 		})
 
 		RespondWithJson(w, http.StatusOK, chirps)
@@ -120,9 +141,9 @@ func main() {
 		return
 	})
 
-    apiRouter.Delete("/chirps/{chirpid}", func(w http.ResponseWriter, r *http.Request) {
+	apiRouter.Delete("/chirps/{chirpid}", func(w http.ResponseWriter, r *http.Request) {
 		chirpID := chi.URLParam(r, "chirpid")
-        chirpIdInt, _ := strconv.Atoi(chirpID)
+		chirpIdInt, _ := strconv.Atoi(chirpID)
 
 		authHeader := r.Header.Get("Authorization")
 		jwtToken := strings.Split(authHeader, " ")[1]
@@ -139,18 +160,18 @@ func main() {
 		subject, err := token.Claims.GetSubject()
 		authorId, _ := strconv.Atoi(strings.Split(subject, "")[0])
 
-        chirp, _ := db.GetChirp(chirpIdInt)
+		chirp, _ := db.GetChirp(chirpIdInt)
 
-        if authorId != chirp.AuthorId {
-            RespondWithError(w, 403, "who u")
-            return
-        }
+		if authorId != chirp.AuthorId {
+			RespondWithError(w, 403, "who u")
+			return
+		}
 
-        db.DeleteChirp(chirpIdInt)
+		db.DeleteChirp(chirpIdInt)
 
-        RespondWithJson(w, http.StatusOK, struct{}{})
-        return
-    })
+		RespondWithJson(w, http.StatusOK, struct{}{})
+		return
+	})
 
 	apiRouter.Post("/users", func(w http.ResponseWriter, r *http.Request) {
 		type user struct {
@@ -180,10 +201,11 @@ func main() {
 		}
 
 		type userWithToken struct {
-			Id           int `json:"id"`
-			User         user
+			Id int `json:"id"`
+			user
 			Token        string `json:"token"`
 			RefreshToken string `json:"refresh_token"`
+			IsChirpyRed  bool   `json:"is_chirpy_red"`
 		}
 
 		decoder := json.NewDecoder(r.Body)
@@ -221,22 +243,26 @@ func main() {
 		accessTokenString, _ := accessToken.SignedString([]byte(cfg.jwtSecret))
 		refreshTokenString, _ := refreshToken.SignedString([]byte(cfg.jwtSecret))
 
-		RespondWithJson(w, http.StatusOK, userWithToken{
+		toReturn := userWithToken{
 			Id: foundUser.Id,
-			User: user{
+			user: user{
 				Email: foundUser.Email,
 			},
 			Token:        accessTokenString,
 			RefreshToken: refreshTokenString,
-		})
+			IsChirpyRed:  foundUser.IsChirpyRed,
+		}
+
+		RespondWithJson(w, http.StatusOK, toReturn)
 		return
 	})
 
 	apiRouter.Put("/users", func(w http.ResponseWriter, r *http.Request) {
 		type user struct {
-			Id    int    `json:"id"`
-			Email string `json:"email"`
-			Token string `json:"token"`
+			Id          int    `json:"id"`
+			Email       string `json:"email"`
+			Token       string `json:"token"`
+			IsChirpyRed bool   `json:"is_chirpy_red"`
 		}
 
 		type userWithPassword struct {
@@ -304,12 +330,47 @@ func main() {
 		newJwtToken, _ := token.SignedString([]byte(cfg.jwtSecret))
 
 		userToReturn := user{
-			Id:    updatedUser.Id,
-			Email: updatedUser.Email,
-			Token: newJwtToken,
+			Id:          updatedUser.Id,
+			Email:       updatedUser.Email,
+			Token:       newJwtToken,
+			IsChirpyRed: updateData.IsChirpyRed,
 		}
 
 		RespondWithJson(w, http.StatusOK, userToReturn)
+	})
+
+	apiRouter.Post("/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		type polkaEvent struct {
+			Event string         `json:"event"`
+			Data  map[string]int `json:"data"`
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		authArr := strings.Split(authHeader, " ")
+
+		if len(authArr) < 2 || authArr[1] != cfg.polkaApiKey {
+			RespondWithError(w, 401, "unauthorized")
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		eventData := polkaEvent{}
+		decoder.Decode(&eventData)
+
+		if eventData.Event != "user.upgraded" {
+			RespondWithJson(w, http.StatusOK, struct{}{})
+			return
+		}
+
+		err := db.UpgradeUser(eventData.Data["user_id"])
+
+		if err != nil {
+			RespondWithError(w, 404, "not found")
+			return
+		}
+
+		RespondWithJson(w, http.StatusOK, struct{}{})
+		return
 	})
 
 	apiRouter.Post("/refresh", func(w http.ResponseWriter, r *http.Request) {
